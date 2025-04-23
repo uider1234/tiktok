@@ -1,0 +1,294 @@
+// TikTok Clone - Fully Loaded with Features
+
+import React, { useState, useRef, useEffect } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, Dimensions, TextInput, FlatList, ScrollView, Image, Modal } from "react-native";
+import { Camera } from "expo-camera";
+import { Video } from "expo-av";
+import * as MediaLibrary from "expo-media-library";
+import * as ImagePicker from "expo-image-picker";
+import { Audio } from "expo-av";
+
+const { height } = Dimensions.get("window");
+
+export default function App() {
+  const [hasPermission, setHasPermission] = useState(null);
+  const [recording, setRecording] = useState(false);
+  const [videoUri, setVideoUri] = useState(null);
+  const [cameraType, setCameraType] = useState(Camera.Constants.Type.back);
+  const [selectedFilter, setSelectedFilter] = useState("normal");
+  const [countdown, setCountdown] = useState(0);
+  const [music, setMusic] = useState(null);
+  const [username, setUsername] = useState("");
+  const [videos, setVideos] = useState([]);
+  const [followers, setFollowers] = useState({});
+  const [balance, setBalance] = useState(0);
+  const [favorites, setFavorites] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [viewProfile, setViewProfile] = useState(null);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [selectedVideoToReport, setSelectedVideoToReport] = useState(null);
+  const cameraRef = useRef(null);
+  const soundRef = useRef(null);
+
+  useEffect(() => {
+    (async () => {
+      const cameraStatus = await Camera.requestCameraPermissionsAsync();
+      const audioStatus = await Audio.requestPermissionsAsync();
+      const mediaStatus = await MediaLibrary.requestPermissionsAsync();
+      setHasPermission(cameraStatus.status === "granted" && audioStatus.status === "granted" && mediaStatus.status === "granted");
+    })();
+  }, []);
+
+  const startCountdown = async () => {
+    setCountdown(3);
+    let count = 3;
+    const timer = setInterval(() => {
+      count--;
+      setCountdown(count);
+      if (count === 0) {
+        clearInterval(timer);
+        startRecording();
+      }
+    }, 1000);
+  };
+
+  const startRecording = async () => {
+    if (cameraRef.current) {
+      if (music) {
+        const { sound } = await Audio.Sound.createAsync(music);
+        soundRef.current = sound;
+        await sound.playAsync();
+      }
+      setRecording(true);
+      const video = await cameraRef.current.recordAsync({ maxDuration: 180 });
+      setVideoUri(video.uri);
+      setRecording(false);
+      if (soundRef.current) {
+        await soundRef.current.stopAsync();
+        await soundRef.current.unloadAsync();
+      }
+    }
+  };
+
+  const stopRecording = () => {
+    if (cameraRef.current && recording) {
+      cameraRef.current.stopRecording();
+    }
+  };
+
+  const flipCamera = () => {
+    setCameraType(prev => prev === Camera.Constants.Type.back ? Camera.Constants.Type.front : Camera.Constants.Type.back);
+  };
+
+  const pickMusic = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Audio,
+    });
+    if (!result.canceled) {
+      setMusic(result.assets[0]);
+    }
+  };
+
+  const filters = ["normal", "bw", "vintage", "beauty"];
+
+  const filterStyle = () => {
+    switch (selectedFilter) {
+      case "bw": return { filter: 'grayscale(1)' };
+      case "vintage": return { tintColor: 'rgba(255, 204, 153, 0.3)' };
+      case "beauty": return { opacity: 0.95 };
+      default: return {};
+    }
+  };
+
+  const uploadVideo = async () => {
+    const id = Date.now().toString();
+    setVideos(prev => [...prev, { id, uri: videoUri, user: username || "Anonymous", likes: 0, views: Math.floor(Math.random() * 1000), isFavorite: false }]);
+    setVideoUri(null);
+  };
+
+  const likeVideo = (id) => {
+    setVideos(prev => prev.map(v => v.id === id ? { ...v, likes: v.likes + 1 } : v));
+    setBalance(prev => prev + 1);
+  };
+
+  const toggleFollow = (user) => {
+    setFollowers(prev => ({ ...prev, [user]: !prev[user] }));
+  };
+
+  const toggleFavorite = (id) => {
+    setVideos(prev => prev.map(v => v.id === id ? { ...v, isFavorite: !v.isFavorite } : v));
+  };
+
+  const handleReport = (videoId) => {
+    setSelectedVideoToReport(videoId);
+    setReportModalVisible(true);
+  };
+
+  const submitReport = () => {
+    console.log("Reported video ID:", selectedVideoToReport);
+    setReportModalVisible(false);
+    setSelectedVideoToReport(null);
+  };
+
+  if (hasPermission === null) return <View><Text>Requesting permissions...</Text></View>;
+  if (hasPermission === false) return <View><Text>No access to camera or media</Text></View>;
+
+  if (viewProfile) {
+    const userVideos = videos.filter(v => v.user === viewProfile);
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={{ padding: 20, alignItems: 'center' }}>
+          <Image source={{ uri: 'https://via.placeholder.com/100' }} style={{ width: 100, height: 100, borderRadius: 50 }} />
+          <Text style={{ color: 'white', fontSize: 20, marginVertical: 10 }}>@{viewProfile}</Text>
+          <Text style={{ color: 'white' }}>Followers: {followers[viewProfile] ? 1 : 0}</Text>
+          <TouchableOpacity onPress={() => toggleFollow(viewProfile)} style={styles.button}>
+            <Text style={styles.text}>{followers[viewProfile] ? "Unfollow" : "Follow"}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setViewProfile(null)} style={styles.button}>
+            <Text style={styles.text}>Back</Text>
+          </TouchableOpacity>
+        </View>
+        <FlatList
+          data={userVideos}
+          keyExtractor={item => item.id}
+          renderItem={({ item }) => (
+            <View style={{ padding: 10 }}>
+              <Video source={{ uri: item.uri }} useNativeControls resizeMode="cover" style={{ height: 300 }} />
+              <Text style={styles.text}>❤️ {item.likes}   👁️ {item.views}</Text>
+            </View>
+          )}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {!videoUri ? (
+        <Camera style={[styles.camera, filterStyle()]} type={cameraType} ref={cameraRef}>
+          {countdown > 0 && <Text style={styles.countdown}>{countdown}</Text>}
+          <View style={styles.controls}>
+            <TouchableOpacity onPress={flipCamera} style={styles.button}><Text style={styles.text}>Flip</Text></TouchableOpacity>
+            <TouchableOpacity onPress={pickMusic} style={styles.button}><Text style={styles.text}>🎵 Music</Text></TouchableOpacity>
+            <TouchableOpacity onPress={recording ? stopRecording : startCountdown} style={styles.buttonRecord}>
+              <Text style={styles.text}>{recording ? "Stop" : "Start"}</Text>
+            </TouchableOpacity>
+            <View style={styles.filters}>
+              {filters.map((f, index) => (
+                <TouchableOpacity key={index} onPress={() => setSelectedFilter(f)}>
+                  <Text style={styles.filterText}>{f}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </Camera>
+      ) : (
+        <View style={{ flex: 1 }}>
+          <Video source={{ uri: videoUri }} rate={1.0} volume={1.0} isMuted={false} resizeMode="cover" shouldPlay isLooping style={styles.camera} />
+          <TextInput placeholder="Enter username" value={username} onChangeText={setUsername} style={{ backgroundColor: '#fff', padding: 10 }} />
+          <TouchableOpacity onPress={uploadVideo} style={styles.button}><Text style={styles.text}>Upload</Text></TouchableOpacity>
+        </View>
+      )}
+
+      <Text style={{ color: 'white', textAlign: 'center', marginTop: 5 }}>💰 Balance: {balance}</Text>
+
+      <FlatList
+        data={videos.sort((a, b) => b.views - a.views)}
+        keyExtractor={item => item.id}
+        renderItem={({ item }) => (
+          <View style={{ padding: 10 }}>
+            <TouchableOpacity onPress={() => setViewProfile(item.user)}>
+              <Text style={styles.text}>@{item.user}</Text>
+            </TouchableOpacity>
+            <Video source={{ uri: item.uri }} useNativeControls resizeMode="cover" style={{ height: 300 }} />
+            <Text style={styles.text}>❤️ {item.likes}   👁️ {item.views}</Text>
+            <TouchableOpacity onPress={() => likeVideo(item.id)} style={styles.button}><Text style={styles.text}>Like</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => toggleFavorite(item.id)} style={styles.button}>
+              <Text style={styles.text}>{item.isFavorite ? "Unfavorite" : "Favorite"}</Text>
+            </TouchableOpacity>
+            {item.user !== username && (
+              <TouchableOpacity onPress={() => toggleFollow(item.user)} style={styles.button}>
+                <Text style={styles.text}>{followers[item.user] ? "Unfollow" : "Follow"}</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={() => handleReport(item.id)} style={styles.button}>
+              <Text style={styles.text}>🚩 Report</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      />
+
+      <Modal
+        visible={reportModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setReportModalVisible(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: 'white', padding: 20, borderRadius: 10, width: '80%' }}>
+            <Text style={{ fontSize: 18, marginBottom: 10 }}>Report this video?</Text>
+            <TouchableOpacity onPress={submitReport} style={[styles.button, { backgroundColor: 'red' }]}>
+              <Text style={styles.text}>Submit Report</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setReportModalVisible(false)} style={[styles.button, { backgroundColor: '#ccc' }]}>
+              <Text style={[styles.text, { color: '#000' }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  camera: {
+    flex: 1,
+    height: height,
+  },
+  controls: {
+    position: "absolute",
+    bottom: 50,
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+  },
+  button: {
+    backgroundColor: "#555",
+    padding: 10,
+    borderRadius: 10,
+    marginTop: 5,
+  },
+  buttonRecord: {
+    backgroundColor: "red",
+    padding: 20,
+    borderRadius: 50,
+  },
+  text: {
+    color: "white",
+    fontWeight: "bold",
+  },
+  countdown: {
+    fontSize: 60,
+    color: "white",
+    position: "absolute",
+    top: "40%",
+    left: "45%",
+  },
+  filters: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    padding: 10,
+    borderRadius: 10,
+  },
+  filterText: {
+    color: "white",
+    marginBottom: 5,
+  },
+});
